@@ -7,6 +7,16 @@ import { isValidTrackingNumber } from '@/lib/validateTracking';
 import User from '@/models/User';
 import Package from '@/models/Package';
 
+// Telegram API types
+interface TelegramUser {
+  id: number;
+  is_bot: boolean;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  language_code?: string;
+}
+
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 const MONGODB_URI = process.env.MONGODB_URI!;
@@ -39,16 +49,42 @@ async function sendMessage(chatId: string, text: string, parseMode: string = 'HT
   }
 }
 
-// Handle /start command
-async function handleStartCommand(chatId: string) {
+// Create or update user in database
+async function createOrUpdateUser(telegramUser: TelegramUser, chatId: string) {
   try {
     await connectDB();
     
-    await User.findOneAndUpdate(
+    const userData = {
+      chatId,
+      userId: telegramUser.id,
+      username: telegramUser.username || null,
+      firstName: telegramUser.first_name || null,
+      lastName: telegramUser.last_name || null,
+      notificationsEnabled: true
+    };
+
+    const user = await User.findOneAndUpdate(
       { chatId },
-      { chatId, notificationsEnabled: true },
-      { upsert: true, new: true }
+      userData,
+      { 
+        upsert: true, 
+        new: true,
+        setDefaultsOnInsert: true
+      }
     );
+
+    console.log(`User created/updated: ${chatId} (${telegramUser.username || 'no username'})`);
+    return user;
+  } catch (error) {
+    console.error('Error creating/updating user:', error);
+    throw error;
+  }
+}
+
+// Handle /start command
+async function handleStartCommand(chatId: string, telegramUser: TelegramUser) {
+  try {
+    await createOrUpdateUser(telegramUser, chatId);
 
     const welcomeMessage = `
 🎉 <b>Welcome to PackTracker Bot!</b>
@@ -78,9 +114,13 @@ I help you track your packages from Temu, Shein, AliExpress, and Alibaba with au
 }
 
 // Handle tracking number input
-async function handleTrackingNumberInput(chatId: string, input: string) {
+async function handleTrackingNumberInput(chatId: string, input: string, telegramUser: TelegramUser) {
   try {
     await connectDB();
+    
+    // Ensure user exists in database
+    await createOrUpdateUser(telegramUser, chatId);
+    
     userStates.delete(chatId);
 
     const inputTrackingNumbers = input
@@ -174,8 +214,12 @@ Send me another tracking number or use:
 }
 
 // Handle /help command
-async function handleHelpCommand(chatId: string) {
-  const helpMessage = `
+async function handleHelpCommand(chatId: string, telegramUser: TelegramUser) {
+  try {
+    // Ensure user exists in database
+    await createOrUpdateUser(telegramUser, chatId);
+    
+    const helpMessage = `
 🤖 <b>PackTracker Bot Help</b>
 
 <b>Commands:</b>
@@ -197,15 +241,23 @@ async function handleHelpCommand(chatId: string) {
 🔔 Customizable notifications
 
 <b>Just send me a tracking number anytime!</b>
-  `.trim();
+    `.trim();
 
-  await sendMessage(chatId, helpMessage);
+    await sendMessage(chatId, helpMessage);
+  } catch (error) {
+    console.error('Error handling help command:', error);
+    await sendMessage(chatId, '❌ An error occurred. Please try again.');
+  }
 }
 
 // Handle /list command
-async function handleListCommand(chatId: string) {
+async function handleListCommand(chatId: string, telegramUser: TelegramUser) {
   try {
     await connectDB();
+    
+    // Ensure user exists in database
+    await createOrUpdateUser(telegramUser, chatId);
+    
     const packages = await Package.find({ telegramChatId: chatId }).sort({ createdAt: -1 });
 
     if (packages.length === 0) {
@@ -267,25 +319,29 @@ export async function POST(request: NextRequest) {
 
     const chatId = message.chat.id.toString();
     const text = message.text?.trim();
+    const telegramUser = message.from; // This contains user info
 
-    if (!text) {
+    if (!text || !telegramUser) {
       return NextResponse.json({ success: true });
     }
 
-    console.log(`Received message from ${chatId}: ${text}`);
+    console.log(`Received message from ${chatId}: ${text} (User: ${telegramUser.username || telegramUser.first_name || 'Unknown'})`);
 
     if (text === '/start') {
-      await handleStartCommand(chatId);
+      await handleStartCommand(chatId, telegramUser);
     } else if (text === '/help') {
-      await handleHelpCommand(chatId);
+      await handleHelpCommand(chatId, telegramUser);
     } else if (text === '/list') {
-      await handleListCommand(chatId);
+      await handleListCommand(chatId, telegramUser);
     } else {
       // Check if user is in tracking number input mode or treat as tracking number
       const userState = userStates.get(chatId);
       if (userState?.waitingForTracking || isValidTrackingNumber(text.split(/[\s,\n]+/)[0]?.trim().toUpperCase())) {
-        await handleTrackingNumberInput(chatId, text);
+        await handleTrackingNumberInput(chatId, text, telegramUser);
       } else {
+        // Ensure user exists even for unknown commands
+        await createOrUpdateUser(telegramUser, chatId);
+        
         await sendMessage(chatId, `
 ❓ <b>Unknown command</b>
 
