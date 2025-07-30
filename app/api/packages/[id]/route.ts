@@ -4,11 +4,12 @@ import Package from '@/models/Package';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await dbConnect();
-    const packages = await Package.findById(params.id);
+    const { id } = await params;
+    const packages = await Package.findById(id);
     
     if (!packages) {
       return NextResponse.json(
@@ -29,11 +30,12 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await dbConnect();
-    const deletedPackage = await Package.findByIdAndDelete(params.id);
+    const { id } = await params;
+    const deletedPackage = await Package.findByIdAndDelete(id);
     
     if (!deletedPackage) {
       return NextResponse.json(
@@ -54,14 +56,15 @@ export async function DELETE(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const body = await request.json();
     await dbConnect();
+    const { id } = await params;
     
     const updatedPackage = await Package.findByIdAndUpdate(
-      params.id,
+      id,
       body,
       { new: true }
     );
