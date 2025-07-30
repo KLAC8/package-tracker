@@ -1,0 +1,103 @@
+{
+  "name": "Telegram Package Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "package-notification",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "telegram-notification",
+      "id": "1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process webhook data\nconst data = $input.all()[0].json;\nconst { trackingNumber, status, description, carrier } = data;\n\n// Format message based on status\nlet message = '';\nlet emoji = '';\n\nswitch(status) {\n  case 'delivered':\n    emoji = '🎉';\n    message = `${emoji} Package Delivered!\\n\\n📦 Tracking: ${trackingNumber}\\n🚚 Carrier: ${carrier}\\n📝 ${description || 'Your package has arrived!'}`;\n    break;\n  case 'in_transit':\n    emoji = '🚚';\n    message = `${emoji} Package Update\\n\\n📦 Tracking: ${trackingNumber}\\n🚚 Carrier: ${carrier}\\n📍 Status: In Transit\\n📝 ${description || 'Your package is on the way!'}`;\n    break;\n  case 'exception':\n    emoji = '⚠️';\n    message = `${emoji} Package Alert\\n\\n📦 Tracking: ${trackingNumber}\\n🚚 Carrier: ${carrier}\\n❌ Status: Exception\\n📝 ${description || 'There\\'s an issue with your package'}`;\n    break;\n  default:\n    emoji = '📦';\n    message = `${emoji} Package Update\\n\\n📦 Tracking: ${trackingNumber}\\n🚚 Carrier: ${carrier}\\n📊 Status: ${status}\\n📝 ${description || 'Status updated'}`;\n}\n\nreturn [{ json: { message, chatId: data.telegramChatId } }];"
+      },
+      "name": "Format Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "2"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId || $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot"
+        }
+      },
+      "id": "3"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Notification sent\" } }}"
+      },
+      "name": "Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "4"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Format Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-20T10:00:00.000Z",
+  "versionId": "1"
+}

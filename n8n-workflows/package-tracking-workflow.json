@@ -1,0 +1,150 @@
+{
+  "name": "Package Tracking Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "triggersOn": "cronExpression",
+              "cronExpression": "0 */6 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "1"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/packages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "name": "Get All Packages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "id": "2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract tracking numbers from packages\nconst packages = $input.all()[0].json.data;\nconst trackingNumbers = packages\n  .filter(pkg => pkg.status !== 'delivered')\n  .map(pkg => pkg.trackingNumber);\n\nreturn [{ json: { trackingNumbers } }];"
+      },
+      "name": "Extract Tracking Numbers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "id": "3"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/track",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"trackingNumbers\": $json.trackingNumbers } }}",
+        "options": {}
+      },
+      "name": "Update Tracking Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "id": "4"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process tracking results and identify status changes\nconst results = $input.all()[0].json.data;\nconst statusChanges = results.filter(result => \n  result.success && result.statusChanged\n);\n\nreturn statusChanges.map(change => ({ json: change }));"
+      },
+      "name": "Process Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "id": "5"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/webhook",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"trackingNumber\": $json.trackingNumber,\n  \"status\": $json.status,\n  \"events\": $json.events,\n  \"source\": \"n8n\"\n} }}",
+        "options": {}
+      },
+      "name": "Send Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "id": "6"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get All Packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Packages": {
+      "main": [
+        [
+          {
+            "node": "Extract Tracking Numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tracking Numbers": {
+      "main": [
+        [
+          {
+            "node": "Update Tracking Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tracking Info": {
+      "main": [
+        [
+          {
+            "node": "Process Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Results": {
+      "main": [
+        [
+          {
+            "node": "Send Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-20T10:00:00.000Z",
+  "versionId": "1"
+}
